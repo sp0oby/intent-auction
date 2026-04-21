@@ -1,6 +1,6 @@
 # IntentAuction
 
-[![Live on Vercel](https://img.shields.io/badge/demo-intent--auction.vercel.app-black?logo=vercel)](https://intent-auction.vercel.app/) [![Sepolia](https://img.shields.io/badge/network-Sepolia-7aa2ff)](https://sepolia.etherscan.io/address/0x1fD91229ee0217E9381d936Dc43d6E81283eD5c4) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[Live on Vercel](https://intent-auction.vercel.app/) [Sepolia](https://sepolia.etherscan.io/address/0x1fD91229ee0217E9381d936Dc43d6E81283eD5c4) [License: MIT](LICENSE)
 
 **Onchain competitive intent solver marketplace, on Ethereum.**
 
@@ -13,7 +13,7 @@ Users sign gasless EIP-712 intents (*"swap 1 mWETH for at least 1,990 mUSDC, and
 ## Try it live (Sepolia)
 
 - **Live frontend:** **[intent-auction.vercel.app](https://intent-auction.vercel.app/)** — connect a Sepolia-funded wallet and test either side of the auction.
-- **Contract:** [`IntentAuction`](https://sepolia.etherscan.io/address/0x1fD91229ee0217E9381d936Dc43d6E81283eD5c4) (see [the full trace of a live settlement](#live-demo-trace-sepolia) below).
+- **Contract:** `[IntentAuction](https://sepolia.etherscan.io/address/0x1fD91229ee0217E9381d936Dc43d6E81283eD5c4)` (see [the full trace of a live settlement](#live-demo-trace-sepolia) below).
 - **No tokens needed** — the UI has a built-in faucet that mints mock WETH / USDC. You only need Sepolia ETH for gas ([Alchemy faucet](https://www.alchemy.com/faucets/ethereum-sepolia)).
 - **Play both sides.** Post an intent as a user, then bid on it as a solver. Cross-wallet testing tip: set `auctionDuration` to a larger block count on `/create` (e.g. `60` ≈ 12 min) so you have time to switch wallets before the window closes.
 

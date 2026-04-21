@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { formatUnits, parseAbiItem, type Address, type Log } from "viem";
 import { usePublicClient } from "wagmi";
 import { ADDRESSES } from "../lib/contracts";
+import { fetchLogsChunked } from "../lib/logs";
 import { AddressPill } from "./Address";
 
 /**
@@ -26,8 +27,6 @@ type SettledLog = {
 };
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const CHUNK_SIZE = 9n;
-const CONCURRENCY = 6;
 const DEFAULT_MAX_LOOKBACK = 50n;
 
 function deployBlock(): bigint | null {
@@ -60,27 +59,13 @@ export function RecentSettlements() {
         const fromBlock =
           deploy !== null ? deploy : latest > lookback ? latest - lookback : 0n;
 
-        const ranges: Array<{ from: bigint; to: bigint }> = [];
-        for (let start = fromBlock; start <= latest; start += CHUNK_SIZE + 1n) {
-          const end = start + CHUNK_SIZE > latest ? latest : start + CHUNK_SIZE;
-          ranges.push({ from: start, to: end });
-        }
-
-        const logs: Log[] = [];
-        for (let i = 0; i < ranges.length; i += CONCURRENCY) {
-          if (cancelled) return;
-          const batch = await Promise.all(
-            ranges.slice(i, i + CONCURRENCY).map((r) =>
-              client.getLogs({
-                address: ADDRESSES.intentAuction,
-                event: SETTLED,
-                fromBlock: r.from,
-                toBlock: r.to,
-              })
-            )
-          );
-          for (const ls of batch) logs.push(...ls);
-        }
+        const logs = await fetchLogsChunked({
+          client,
+          address: ADDRESSES.intentAuction,
+          event: SETTLED,
+          fromBlock,
+          toBlock: latest,
+        });
         if (cancelled) return;
         setItems(
           logs
@@ -90,7 +75,7 @@ export function RecentSettlements() {
             .slice(0, 10)
         );
       } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setErr(friendlyLogError(e));
       }
     }
     void run();
@@ -138,6 +123,14 @@ export function RecentSettlements() {
       ))}
     </div>
   );
+}
+
+function friendlyLogError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/compute units per second|rate limit|429/i.test(msg)) {
+    return "RPC rate-limited — Alchemy's free tier just hit its per-second budget. Give it a few seconds and reload.";
+  }
+  return msg;
 }
 
 function parseLog(log: Log): SettledLog | null {

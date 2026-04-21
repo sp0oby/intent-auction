@@ -21,8 +21,17 @@ export const wagmiConfig = getDefaultConfig({
   projectId: wcProjectId,
   chains: [APP_CHAIN],
   transports: {
+    // Batching coalesces multiple JSON-RPC calls into a single HTTP request
+    // (big win on Alchemy's free tier — 1 HTTP call instead of N).
+    // Retries with exponential backoff absorb transient 429s from the
+    // compute-units-per-second cap.
     [APP_CHAIN.id]: http(
-      `https://eth-sepolia.g.alchemy.com/v2/${alchemyKey}`
+      `https://eth-sepolia.g.alchemy.com/v2/${alchemyKey}`,
+      {
+        batch: { wait: 16 },
+        retryCount: 5,
+        retryDelay: 400,
+      }
     ),
   },
   ssr: true,

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { formatUnits, type Address, type Log, parseAbiItem } from "viem";
 import { usePublicClient } from "wagmi";
 import { ADDRESSES } from "../lib/contracts";
+import { fetchLogsChunked } from "../lib/logs";
 import { AddressPill } from "./Address";
 
 type PostedIntent = {
@@ -25,14 +26,6 @@ const INTENT_POSTED = parseAbiItem(
   "event IntentPosted(bytes32 indexed intentId, address indexed user, address indexed tokenIn, address tokenOut, uint256 amountIn, uint256 minAmountOut, uint96 auctionEndBlock)"
 );
 
-/**
- * Free-tier Sepolia RPCs (notably Alchemy) cap `eth_getLogs` to a narrow
- * block range — Alchemy's current cap is 10 blocks. We scan in 9-block
- * chunks from the deploy block (or the last N blocks, whichever is tighter),
- * issuing up to `CONCURRENCY` requests in parallel.
- */
-const CHUNK_SIZE = 9n;
-const CONCURRENCY = 6;
 // Hard cap on history to scan when no deploy block is provided, to keep
 // the first-load time bounded on a free-tier RPC (~10 min at 12s/block).
 const DEFAULT_MAX_LOOKBACK = 50n;
@@ -74,27 +67,13 @@ export function IntentFeed() {
         const fromBlock =
           deploy !== null ? deploy : latest > lookback ? latest - lookback : 0n;
 
-        const ranges: Array<{ from: bigint; to: bigint }> = [];
-        for (let start = fromBlock; start <= latest; start += CHUNK_SIZE + 1n) {
-          const end = start + CHUNK_SIZE > latest ? latest : start + CHUNK_SIZE;
-          ranges.push({ from: start, to: end });
-        }
-
-        const logs: Log[] = [];
-        for (let i = 0; i < ranges.length; i += CONCURRENCY) {
-          if (cancelled) return;
-          const batch = await Promise.all(
-            ranges.slice(i, i + CONCURRENCY).map((r) =>
-              client.getLogs({
-                address: ADDRESSES.intentAuction,
-                event: INTENT_POSTED,
-                fromBlock: r.from,
-                toBlock: r.to,
-              })
-            )
-          );
-          for (const ls of batch) logs.push(...ls);
-        }
+        const logs = await fetchLogsChunked({
+          client,
+          address: ADDRESSES.intentAuction,
+          event: INTENT_POSTED,
+          fromBlock,
+          toBlock: latest,
+        });
 
         if (cancelled) return;
         setIntents(
@@ -104,7 +83,7 @@ export function IntentFeed() {
             .sort((a, b) => Number(b.blockNumber - a.blockNumber))
         );
       } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setErr(friendlyLogError(e));
       }
     }
     void fetchLogs();
@@ -155,6 +134,18 @@ function shortToken(addr: Address): string {
   if (addr.toLowerCase() === ADDRESSES.mockWeth.toLowerCase()) return "mWETH";
   if (addr.toLowerCase() === ADDRESSES.mockUsdc.toLowerCase()) return "mUSDC";
   return `${addr.slice(0, 6)}…`;
+}
+
+/**
+ * Alchemy's 429 error message is ~400 chars of implementation detail. Show
+ * something a human can act on instead.
+ */
+function friendlyLogError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/compute units per second|rate limit|429/i.test(msg)) {
+    return "RPC rate-limited — Alchemy's free tier just hit its per-second budget. Give it a few seconds and reload.";
+  }
+  return msg;
 }
 
 function parseLog(log: Log): PostedIntent | null {
