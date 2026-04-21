@@ -77,43 +77,32 @@ export function IntentFeed() {
         const fromBlock =
           deploy !== null ? deploy : latest > lookback ? latest - lookback : 0n;
 
-        // Fetch all three event types in parallel. They share the global
-        // concurrency semaphore in fetchLogsChunked, so this doesn't blow
-        // the RPC budget — just interleaves the chunks.
-        const [postedLogs, settledLogs, cancelledLogs] = await Promise.all([
-          fetchLogsChunked({
-            client,
-            address: ADDRESSES.intentAuction,
-            event: INTENT_POSTED,
-            fromBlock,
-            toBlock: latest,
-          }),
-          fetchLogsChunked({
-            client,
-            address: ADDRESSES.intentAuction,
-            event: SETTLED,
-            fromBlock,
-            toBlock: latest,
-          }),
-          fetchLogsChunked({
-            client,
-            address: ADDRESSES.intentAuction,
-            event: CANCELLED,
-            fromBlock,
-            toBlock: latest,
-          }),
-        ]);
+        // Single chunked scan that matches all three event types per RPC
+        // call — 3x fewer requests than fetching each event separately.
+        const all = await fetchLogsChunked({
+          client,
+          address: ADDRESSES.intentAuction,
+          events: [INTENT_POSTED, SETTLED, CANCELLED],
+          fromBlock,
+          toBlock: latest,
+        });
 
         if (cancelled) return;
 
         const finalized = new Set<string>();
-        for (const l of [...settledLogs, ...cancelledLogs]) {
-          const id = (l as Log & { args?: { intentId?: string } }).args?.intentId;
-          if (id) finalized.add(id.toLowerCase());
+        const posted: Log[] = [];
+        for (const log of all) {
+          const name = (log as Log & { eventName?: string }).eventName;
+          const id = (log as Log & { args?: { intentId?: string } }).args?.intentId;
+          if (name === "IntentPosted") {
+            posted.push(log);
+          } else if ((name === "Settled" || name === "IntentCancelled") && id) {
+            finalized.add(id.toLowerCase());
+          }
         }
 
         setIntents(
-          postedLogs
+          posted
             .map(parseLog)
             .filter((x): x is PostedIntent => x !== null)
             .filter((x) => !finalized.has(x.intentId.toLowerCase()))
