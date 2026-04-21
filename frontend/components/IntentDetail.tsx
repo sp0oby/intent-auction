@@ -181,6 +181,23 @@ export function IntentDetail({ id }: { id: `0x${string}` }) {
           {settleErr ? <div className="text-sm text-bad">{settleErr}</div> : null}
         </div>
       ) : null}
+
+      {state.status === 0 && auctionOver && netValue === null ? (
+        <div className="card space-y-1 border-warn/40 text-sm">
+          <div className="font-semibold text-warn">Auction expired with no bids</div>
+          <p className="text-xs leading-relaxed text-zinc-400">
+            This intent&apos;s auction window closed without anyone bidding.
+            It can&apos;t be settled (no bid to execute), and only the original
+            signer (<span className="font-mono">{state.intent.user.slice(0, 6)}…{state.intent.user.slice(-4)}</span>)
+            can cancel it. The easiest path is to{" "}
+            <a href="/create" className="text-accent hover:underline">
+              post a fresh intent
+            </a>{" "}
+            and bid on it before the window closes (~12 Sepolia blocks,
+            ~2.5 minutes).
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
