@@ -1,6 +1,11 @@
 # IntentAuction
 
-[Live on Vercel](https://intent-auction.vercel.app/) [Sepolia](https://sepolia.etherscan.io/address/0x1fD91229ee0217E9381d936Dc43d6E81283eD5c4) [License: MIT](LICENSE)
+[![Live on Vercel](https://img.shields.io/badge/demo-intent--auction.vercel.app-black?logo=vercel)](https://intent-auction.vercel.app/)
+[![Sepolia](https://img.shields.io/badge/network-Sepolia-7aa2ff?logo=ethereum)](https://sepolia.etherscan.io/address/0x1fD91229ee0217E9381d936Dc43d6E81283eD5c4)
+[![Foundry](https://img.shields.io/badge/built%20with-Foundry-orange?logo=ethereum)](https://book.getfoundry.sh/)
+[![Next.js](https://img.shields.io/badge/frontend-Next.js%2014-black?logo=nextdotjs)](https://nextjs.org/)
+[![Tests](https://img.shields.io/badge/tests-36%20passing-brightgreen)](#testing)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **Onchain competitive intent solver marketplace, on Ethereum.**
 
