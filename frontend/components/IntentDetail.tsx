@@ -93,7 +93,11 @@ export function IntentDetail({ id }: { id: `0x${string}` }) {
           <span className="text-zinc-600">·</span>
           {state.status === 0 ? (
             auctionOver ? (
-              <span className="text-warn">waiting for settlement</span>
+              netValue === null ? (
+                <span className="text-zinc-500">expired · no bids</span>
+              ) : (
+                <span className="text-warn">ready to settle</span>
+              )
             ) : (
               <Countdown endBlock={state.auctionEndBlock} />
             )
