@@ -1,0 +1,49 @@
+# Compiler files
+cache/
+out/
+
+# Docs
+docs/
+
+# Foundry snapshots
+.gas-snapshot
+
+# Dotenv
+.env
+.env.local
+.env.*.local
+
+# Node / frontend
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+frontend/.turbo/
+
+# Logs
+*.log
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+
+# Foundry broadcasts (keep for verification but ignore intermediate)
+broadcast/*/dry-run/
+broadcast/**/run-latest.json.bak
+
+# Demo scratch state
+deployments/.demo_intent_id.txt
+
+# Coverage
+lcov.info
+coverage/
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+frontend/playwright/.cache/
+
+# TypeScript incremental build info
+frontend/tsconfig.tsbuildinfo
+frontend/next-env.d.ts.bak

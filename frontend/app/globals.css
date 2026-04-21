@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background-color: #0b0d12;
+  color: #e7ebf3;
+  min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-primary {
+  @apply bg-accent text-ink hover:bg-accentDim;
+}
+
+.btn-secondary {
+  @apply border border-surface2 bg-surface hover:bg-surface2;
+}
+
+.field {
+  @apply w-full rounded-lg border border-surface2 bg-ink px-3 py-2 font-mono text-sm outline-none focus:border-accent;
+}
+
+.card {
+  @apply rounded-xl border border-surface2 bg-surface p-5;
+}

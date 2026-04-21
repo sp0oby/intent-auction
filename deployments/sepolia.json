@@ -1,0 +1,10 @@
+{
+  "chainId": 11155111,
+  "intentAuction": "0x1fD91229ee0217E9381d936Dc43d6E81283eD5c4",
+  "executor": "0xCbAd72506bFEc87b5e1d575e65142C71051129B0",
+  "mockWeth": "0xA6bE9ABc6C407cfA2a9Ce2F46759e49C45D34cCe",
+  "mockUsdc": "0x4b0Cb1f10c19a839b4fF5a7d5dF981367eB998E8",
+  "aUsdc": "0x68c9b271d6CbBd679Ed719e4426C1A7A9babea23",
+  "mockSwapRouter": "0x47aC33d3fa3878b3664ac14b9fd8acEb9e17D2a0",
+  "mockLendingPool": "0x0E03C3333C25D61C1075b64D07E220c7bb403d96"
+}
