@@ -26,6 +26,16 @@ const INTENT_POSTED = parseAbiItem(
   "event IntentPosted(bytes32 indexed intentId, address indexed user, address indexed tokenIn, address tokenOut, uint256 amountIn, uint256 minAmountOut, uint96 auctionEndBlock)"
 );
 
+/** Matches `IIntentAuction.Settled`. */
+const SETTLED = parseAbiItem(
+  "event Settled(bytes32 indexed intentId, address indexed solver, uint256 delivered, uint256 solverFee, uint256 userReceives)"
+);
+
+/** Matches `IIntentAuction.IntentCancelled`. */
+const CANCELLED = parseAbiItem(
+  "event IntentCancelled(bytes32 indexed intentId, address indexed user)"
+);
+
 // Hard cap on history to scan when no deploy block is provided, to keep
 // the first-load time bounded on a free-tier RPC (~10 min at 12s/block).
 const DEFAULT_MAX_LOOKBACK = 50n;
@@ -67,19 +77,46 @@ export function IntentFeed() {
         const fromBlock =
           deploy !== null ? deploy : latest > lookback ? latest - lookback : 0n;
 
-        const logs = await fetchLogsChunked({
-          client,
-          address: ADDRESSES.intentAuction,
-          event: INTENT_POSTED,
-          fromBlock,
-          toBlock: latest,
-        });
+        // Fetch all three event types in parallel. They share the global
+        // concurrency semaphore in fetchLogsChunked, so this doesn't blow
+        // the RPC budget — just interleaves the chunks.
+        const [postedLogs, settledLogs, cancelledLogs] = await Promise.all([
+          fetchLogsChunked({
+            client,
+            address: ADDRESSES.intentAuction,
+            event: INTENT_POSTED,
+            fromBlock,
+            toBlock: latest,
+          }),
+          fetchLogsChunked({
+            client,
+            address: ADDRESSES.intentAuction,
+            event: SETTLED,
+            fromBlock,
+            toBlock: latest,
+          }),
+          fetchLogsChunked({
+            client,
+            address: ADDRESSES.intentAuction,
+            event: CANCELLED,
+            fromBlock,
+            toBlock: latest,
+          }),
+        ]);
 
         if (cancelled) return;
+
+        const finalized = new Set<string>();
+        for (const l of [...settledLogs, ...cancelledLogs]) {
+          const id = (l as Log & { args?: { intentId?: string } }).args?.intentId;
+          if (id) finalized.add(id.toLowerCase());
+        }
+
         setIntents(
-          logs
+          postedLogs
             .map(parseLog)
             .filter((x): x is PostedIntent => x !== null)
+            .filter((x) => !finalized.has(x.intentId.toLowerCase()))
             .sort((a, b) => Number(b.blockNumber - a.blockNumber))
         );
       } catch (e) {
