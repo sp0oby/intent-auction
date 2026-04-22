@@ -168,6 +168,13 @@ export function IntentDetail({ id }: { id: `0x${string}` }) {
           amountIn={state.intent.amountIn}
           minAmountOut={state.intent.minAmountOut}
           maxFee={state.intent.maxSolverFee}
+          currentOutput={
+            netValue === null ? null : state.winningBid.outputOffered
+          }
+          currentFee={
+            netValue === null ? null : state.winningBid.solverFee
+          }
+          currentNet={netValue}
           onBid={refetch}
           err={bidErr}
           setErr={setBidErr}
@@ -213,6 +220,9 @@ function BidForm({
   amountIn,
   minAmountOut,
   maxFee,
+  currentOutput,
+  currentFee,
+  currentNet,
   onBid,
   err,
   setErr,
@@ -223,16 +233,88 @@ function BidForm({
   amountIn: bigint;
   minAmountOut: bigint;
   maxFee: bigint;
+  /** Current winning bid's outputOffered, or null if no bid yet. */
+  currentOutput: bigint | null;
+  /** Current winning bid's solverFee, or null if no bid yet. */
+  currentFee: bigint | null;
+  /** Current winning bid's net value (outputOffered - solverFee), or null. */
+  currentNet: bigint | null;
   onBid: () => void;
   err: string | null;
   setErr: (s: string | null) => void;
 }) {
-  const [output, setOutput] = useState(formatUnits(minAmountOut, 6));
-  const [fee, setFee] = useState(formatUnits(maxFee / 2n, 6));
+  /**
+   * Defaults.
+   *   - No existing bid: offer exactly `minAmountOut` at half the max fee.
+   *   - Existing bid: keep `outputOffered` the same but cut the fee by 0.000001
+   *     mUSDC (the 6-decimal atomic unit). That's the cheapest way to strictly
+   *     improve net-to-user while staying within the user's fee cap. If the
+   *     current fee is already 0, bump `outputOffered` by 1 atomic unit instead.
+   */
+  const defaults = useMemo(() => {
+    if (currentOutput === null || currentFee === null) {
+      return {
+        output: formatUnits(minAmountOut, 6),
+        fee: formatUnits(maxFee / 2n, 6),
+      };
+    }
+    if (currentFee > 0n) {
+      return {
+        output: formatUnits(currentOutput, 6),
+        fee: formatUnits(currentFee - 1n, 6),
+      };
+    }
+    return {
+      output: formatUnits(currentOutput + 1n, 6),
+      fee: "0",
+    };
+  }, [currentOutput, currentFee, minAmountOut, maxFee]);
+
+  const [output, setOutput] = useState(defaults.output);
+  const [fee, setFee] = useState(defaults.fee);
   const [advanced, setAdvanced] = useState(false);
   const [target, setTarget] = useState<Address>(ADDRESSES.mockSwap);
   const [calldataRaw, setCalldataRaw] = useState<`0x${string}`>("0x");
   const [submitting, setSubmitting] = useState(false);
+
+  /**
+   * Live validation that mirrors the contract's checks in `bidOnIntent`.
+   * Running this in the UI means the user never sees the wallet's
+   * "transaction is likely to fail" warning — we disable the button first.
+   */
+  const validation = useMemo(() => {
+    let outputWei: bigint;
+    let feeWei: bigint;
+    try {
+      outputWei = parseUnits(output || "0", 6);
+      feeWei = parseUnits(fee || "0", 6);
+    } catch {
+      return { ok: false as const, reason: "Invalid number." };
+    }
+    if (outputWei < minAmountOut) {
+      return {
+        ok: false as const,
+        reason: `Output must be ≥ ${formatUnits(minAmountOut, 6)} (user's floor).`,
+      };
+    }
+    if (feeWei > maxFee) {
+      return {
+        ok: false as const,
+        reason: `Fee must be ≤ ${formatUnits(maxFee, 6)} (user's cap).`,
+      };
+    }
+    if (feeWei >= outputWei) {
+      return { ok: false as const, reason: "Fee must be strictly less than output." };
+    }
+    const newNet = outputWei - feeWei;
+    if (currentNet !== null && newNet <= currentNet) {
+      return {
+        ok: false as const,
+        reason: `Bid must strictly improve current best net (${formatUnits(currentNet, 6)}). Yours is ${formatUnits(newNet, 6)}.`,
+      };
+    }
+    return { ok: true as const, newNet };
+  }, [output, fee, minAmountOut, maxFee, currentNet]);
 
   /**
    * Preset calldata: call `MockSwapRouter.swap(tokenIn, tokenOut, amountIn, executor)`.
@@ -256,6 +338,10 @@ function BidForm({
 
   async function onBidClick() {
     setErr(null);
+    if (!validation.ok) {
+      setErr(validation.reason);
+      return;
+    }
     setSubmitting(true);
     try {
       await writeContractAsync({
@@ -300,6 +386,16 @@ function BidForm({
         </label>
       </div>
 
+      {currentNet !== null ? (
+        <div className="rounded border border-surface2 bg-surface/60 p-3 text-xs text-zinc-400">
+          Current best net to user:{" "}
+          <span className="font-mono text-zinc-200">
+            {formatUnits(currentNet, 6)} mUSDC
+          </span>
+          . Your bid must strictly beat it.
+        </div>
+      ) : null}
+
       <label className="block space-y-1">
         <span className="block text-xs text-zinc-400">Output offered (mUSDC)</span>
         <input className="field" value={output} onChange={(e) => setOutput(e.target.value)} />
@@ -308,6 +404,24 @@ function BidForm({
         <span className="block text-xs text-zinc-400">Solver fee (mUSDC)</span>
         <input className="field" value={fee} onChange={(e) => setFee(e.target.value)} />
       </label>
+
+      <div
+        className={`text-xs ${
+          validation.ok ? "text-good" : "text-warn"
+        }`}
+      >
+        {validation.ok ? (
+          <>
+            Your bid: net{" "}
+            <span className="font-mono">
+              {formatUnits(validation.newNet, 6)} mUSDC
+            </span>{" "}
+            to user.
+          </>
+        ) : (
+          validation.reason
+        )}
+      </div>
 
       {advanced ? (
         <>
@@ -342,6 +456,7 @@ function BidForm({
         label="Place bid"
         pendingLabel="Placing…"
         pending={submitting}
+        disabled={!validation.ok}
         onAction={onBidClick}
       />
     </section>
