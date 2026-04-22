@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { encodeFunctionData, formatUnits, parseUnits, type Address } from "viem";
-import { useBlockNumber, useReadContract, useWriteContract } from "wagmi";
+import { useAccount, useBlockNumber, useReadContract, useWriteContract } from "wagmi";
 import { ABIS, ADDRESSES } from "../lib/contracts";
 import { AddressPill } from "./Address";
 import { Countdown } from "./Countdown";
@@ -48,9 +48,12 @@ export function IntentDetail({ id }: { id: `0x${string}` }) {
   });
   const { data: currentBlock } = useBlockNumber({ watch: true });
   const { writeContractAsync } = useWriteContract();
+  const { address: connectedAddress } = useAccount();
   const [bidErr, setBidErr] = useState<string | null>(null);
   const [settleErr, setSettleErr] = useState<string | null>(null);
   const [settling, setSettling] = useState(false);
+  const [cancelErr, setCancelErr] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   if (!data) return <div className="card animate-pulse text-sm text-zinc-500">Loading…</div>;
 
@@ -77,11 +80,33 @@ export function IntentDetail({ id }: { id: `0x${string}` }) {
       });
       await refetch();
     } catch (e) {
-      setSettleErr(e instanceof Error ? e.message : String(e));
+      setSettleErr(friendlySettleError(e));
     } finally {
       setSettling(false);
     }
   }
+
+  async function onCancel() {
+    setCancelErr(null);
+    setCancelling(true);
+    try {
+      await writeContractAsync({
+        address: ADDRESSES.intentAuction,
+        abi: ABIS.IntentAuction,
+        functionName: "cancelIntent",
+        args: [id],
+      });
+      await refetch();
+    } catch (e) {
+      setCancelErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  const isSigner =
+    connectedAddress !== undefined &&
+    connectedAddress.toLowerCase() === state.intent.user.toLowerCase();
 
   return (
     <div className="space-y-6">
@@ -209,8 +234,53 @@ export function IntentDetail({ id }: { id: `0x${string}` }) {
           </p>
         </div>
       ) : null}
+
+      {/* Cancel is always available to the signer while the intent is active.
+          This is the escape hatch when a bid committed to delivering more
+          than the preset swap can produce — settle would revert forever,
+          so the signer cancels to free up the nonce and post a fresh intent. */}
+      {state.status === 0 && isSigner ? (
+        <div className="space-y-2">
+          <TxButton
+            label="Cancel intent"
+            pendingLabel="Cancelling…"
+            pending={cancelling}
+            onAction={onCancel}
+          />
+          {cancelErr ? <div className="text-sm text-bad">{cancelErr}</div> : null}
+          <p className="text-xs leading-relaxed text-zinc-500">
+            You&apos;re the signer. Cancelling marks the intent as unsettleable
+            forever — use this if the winning bid is stuck (e.g. committed to
+            delivering more than the swap route actually pays).
+          </p>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+/**
+ * Turn viem/wallet errors from `settle` into plain-English guidance.
+ * "gas limit too high" is what some RPCs return when the tx would revert
+ * during estimation — typically because the solver's `outputOffered`
+ * exceeds what the preset swap route will actually deliver.
+ */
+function friendlySettleError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  if (/gas limit too high|intrinsic gas too high|gas estimation failed/i.test(raw)) {
+    return (
+      "Settle would revert during gas estimation. Most common cause: the winning bid's " +
+      "`outputOffered` is higher than what the swap route actually delivers (the Executor " +
+      "checks `delivered ≥ outputOffered`). The original signer can cancel the intent below."
+    );
+  }
+  if (/DeliveredLessThanCommitted/i.test(raw)) {
+    return (
+      "Executor rejected the settlement — the swap delivered less tokenOut than the " +
+      "solver's committed `outputOffered`. The signer can cancel the intent below."
+    );
+  }
+  return raw;
 }
 
 function BidForm({
@@ -278,8 +348,24 @@ function BidForm({
   const [submitting, setSubmitting] = useState(false);
 
   /**
-   * Live validation that mirrors the contract's checks in `bidOnIntent`.
-   * Running this in the UI means the user never sees the wallet's
+   * Live quote from MockSwapRouter for the preset route. This is the
+   * ceiling on `outputOffered` when using the preset — committing to more
+   * than this will make `settle` revert with `DeliveredLessThanCommitted`,
+   * leaving the intent stuck until the signer cancels.
+   */
+  const { data: presetQuote } = useReadContract({
+    address: ADDRESSES.mockSwap,
+    abi: ABIS.MockSwapRouter,
+    functionName: "quote",
+    args: [tokenIn, tokenOut, amountIn],
+  });
+  const presetDelivers =
+    typeof presetQuote === "bigint" ? presetQuote : null;
+
+  /**
+   * Live validation that mirrors the contract's checks in `bidOnIntent`
+   * PLUS a preset-route ceiling check (so settle is guaranteed to succeed
+   * later). Running this in the UI means the user never sees the wallet's
    * "transaction is likely to fail" warning — we disable the button first.
    */
   const validation = useMemo(() => {
@@ -313,8 +399,14 @@ function BidForm({
         reason: `Bid must strictly improve current best net (${formatUnits(currentNet, 6)}). Yours is ${formatUnits(newNet, 6)}.`,
       };
     }
+    if (!advanced && presetDelivers !== null && outputWei > presetDelivers) {
+      return {
+        ok: false as const,
+        reason: `Preset swap only delivers ${formatUnits(presetDelivers, 6)} mUSDC for this amountIn. Offering more would lock the intent (settle would revert). Lower your output or use advanced mode with a richer route.`,
+      };
+    }
     return { ok: true as const, newNet };
-  }, [output, fee, minAmountOut, maxFee, currentNet]);
+  }, [output, fee, minAmountOut, maxFee, currentNet, advanced, presetDelivers]);
 
   /**
    * Preset calldata: call `MockSwapRouter.swap(tokenIn, tokenOut, amountIn, executor)`.
@@ -393,6 +485,17 @@ function BidForm({
             {formatUnits(currentNet, 6)} mUSDC
           </span>
           . Your bid must strictly beat it.
+        </div>
+      ) : null}
+
+      {!advanced && presetDelivers !== null ? (
+        <div className="rounded border border-surface2 bg-surface/60 p-3 text-xs text-zinc-400">
+          Preset route (MockSwapRouter) will deliver exactly{" "}
+          <span className="font-mono text-zinc-200">
+            {formatUnits(presetDelivers, 6)} mUSDC
+          </span>{" "}
+          for this intent — that&apos;s the ceiling on output offered. Commit
+          more and settle would revert.
         </div>
       ) : null}
 
